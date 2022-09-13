@@ -50,10 +50,16 @@ def insert_table(conn, table):
     :return:
     """
     c = conn.cursor()
-
+    data = generate_data(10000)
     try:
-
-        return c.rowcount
+        data = generate_data(10000)
+        query_insert = f"""INSERT INTO {table} (A,B,C,D,E) VALUES (?,?,?,?,?)"""
+        query_select = f"""SELECT * FROM {table}"""
+        c.executemany(query_insert, data)
+        conn.commit()
+        c.execute(query_select)
+        records = c.fetchall()
+        return len(records)
     except Error as e:
         print(e)
     finally:
