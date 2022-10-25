@@ -1,8 +1,9 @@
 import random
 import sqlite3
-from itertools import combinations
-from math import comb
 from sqlite3 import Error
+import tracemalloc
+import time
+from memory_profiler import profile
 
 
 class Node(object):
@@ -91,7 +92,6 @@ def generate_data(rows):
         arr.append((a, b, c, d, e))
     return arr
 
-
 def partition(conn, table_name, group_by_tuple):
     """ partitions a table by a collection of dimensions by COUNT aggregate
         :param conn: Connection object
@@ -155,6 +155,7 @@ def insert_into_table(conn, temp_table, parent_table, node, values):
         print(e)
 
 
+
 def buc_cubing(conn, parent_table, filter_level, buc_root, cur_level):
     """ cubes table_name using a BUC Iceberg approach
             :param conn: Connection object
@@ -196,6 +197,19 @@ def buc_processing_tree(dems, root):
         buc_processing_tree(test, child_node)
 
 
+def tracing_start():
+    tracemalloc.stop()
+    print("nTracing Status : ", tracemalloc.is_tracing())
+    tracemalloc.start()
+    print("Tracing Status : ", tracemalloc.is_tracing())
+
+
+def tracing_mem():
+    first_size, first_peak = tracemalloc.get_traced_memory()
+    peak = first_peak / (1024 * 1024)
+    print("Peak Size in MB - ", peak)
+
+
 def main():
     db_name = r"data-cubing.db"
     table_name = "cubing_data"
@@ -221,12 +235,21 @@ def main():
         # add data to table
         generate_table(conn, table_name, num_rows)
 
+        # start analytics
+        tracing_start()
+        start = time.time()
+
         # create processing tree
         buc_root = Node(())
         buc_processing_tree(dems, buc_root)
 
         # run naive BUC cubing on data
         buc_cubing(conn, table_name, 12500, buc_root, 0)
+
+        # print analytics
+        end = time.time()
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
 
         # close connection
         conn.close()
