@@ -7,6 +7,8 @@ pip install -U memory_profiler
 
 Add the decorator "@profile" to any function for line by line mem perf
 
+To run the project change run configuration to "current file"
+
 # View the Database
 From https://www.sqlitetutorial.net/sqlite-python/insert/
 
