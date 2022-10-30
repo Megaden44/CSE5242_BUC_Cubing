@@ -51,7 +51,7 @@ def generate_table(conn, table, num_rows):
     c = conn.cursor()
     try:
         data = generate_data(num_rows)
-        query_insert = f"""INSERT INTO {table} (A,B,C,D,E) VALUES (?,?,?,?,?)"""
+        query_insert = f"""INSERT INTO {table} (A,B,C,D,E, aggregate_column) VALUES (?,?,?,?,?,?)"""
         query_select = f"""SELECT * FROM {table}"""
         c.executemany(query_insert, data)
         conn.commit()
@@ -89,47 +89,9 @@ def generate_data(rows):
         c = random.randint(0, 1)
         d = random.randint(0, 1)
         e = random.randint(0, 1)
-        arr.append((a, b, c, d, e))
+        aggregate_column = random.randint(0, 100)
+        arr.append((a, b, c, d, e, aggregate_column))
     return arr
-
-def partition(conn, table_name, group_by_tuple):
-    """ partitions a table by a collection of dimensions by COUNT aggregate
-        :param conn: Connection object
-        :param table_name: name of table with partitions
-        :param group_by_tuple: tuple that defines the dimensions to partition by
-        :return: array of groups and values
-    """
-    group_list = []
-    string_tuple = ""
-    # makes a string like "A, C, D"
-    # TODO: smarter way to do this??
-    for dem in group_by_tuple:
-        string_tuple += dem + ", "
-    formatted_tuple = string_tuple[0: -2]
-
-    c = conn.cursor()
-    try:
-        if formatted_tuple:
-            query_check = f"""select COUNT(*), {formatted_tuple} from {table_name} group by {formatted_tuple}"""
-        else:
-            query_check = f"""select COUNT(*), A from {table_name}"""
-        c.execute(query_check)
-        print("COUNT   |   DIMENSIONS  |  VALUES")
-        for row in c:
-            values = ""
-            for i in range(len(row)):
-                if i > 0:
-                    values += str(row[i]) + ", "
-            values = values[0: -2]
-            print("%-7d" % row[0], "|", "%-13s" % formatted_tuple, "|", "%-7s" % values)
-            group_list.append(row)
-        print("---------------------------------------")
-        return group_list
-    except Error as e:
-        print(e)
-    finally:
-        if c:
-            c.close()
 
 
 def insert_into_table(conn, temp_table, parent_table, node, values):
@@ -155,12 +117,125 @@ def insert_into_table(conn, temp_table, parent_table, node, values):
         print(e)
 
 
+def count_partition(conn, table_name, group_by_tuple, count_result):
+    """ partitions a table by a collection of dimensions by COUNT aggregate
+        :param conn: Connection object
+        :param table_name: name of table with partitions
+        :param group_by_tuple: tuple that defines the dimensions to partition by
+        :param count_result: running total of counts at each node
+        :return: array of groups and values
+    """
+    group_list = []
+    string_tuple = ""
+    total_count = 0
+    for dem in group_by_tuple:
+        string_tuple += dem + ", "
+    formatted_tuple = string_tuple[0: -2]
+    c = conn.cursor()
+    try:
+        if formatted_tuple:
+            query_check = f"""select COUNT(*), {formatted_tuple} from {table_name} group by {formatted_tuple}"""
+        else:
+            query_check = f"""select COUNT(*), A from {table_name}"""
+        c.execute(query_check)
+        print("COUNT   |   DIMENSIONS  |  VALUES")
+        for row in c:
+            values = ""
+            for i in range(len(row)):
+                if i > 0:
+                    values += str(row[i]) + ", "
+            values = values[0: -2]
+            #print("%-7d" % row[0], "|", "%-13s" % formatted_tuple, "|", "%-7s" % values)
+            group_list.append(row)
+            total_count += row[0]
+        print("---------------------------------------")
+        count_result[group_by_tuple] = total_count
+        return group_list
+    except Error as e:
+        print(e)
+    finally:
+        if c:
+            c.close()
 
-def buc_cubing(conn, parent_table, filter_level, buc_root, cur_level):
+
+def count_buc_cubing(conn, parent_table, filter_level, buc_root, cur_level, count_result):
     """ cubes table_name using a BUC Iceberg approach
             :param conn: Connection object
             :param parent_table: name of table with partitions
             :param filter_level: how deep the iceberg goes
+            :param buc_root: root of processing tree
+            :param cur_level: current lattice level
+            :param count_result: running total of counts at each node
+            :return:
+    """
+    # for each permutation at a given lattice level
+    temp_table = "filtered_data_node_" + str(cur_level)
+    sql_create_temp_table = f""" CREATE TABLE IF NOT EXISTS {temp_table} (
+                                                        id integer PRIMARY KEY,
+                                                        A integer NOT NULL,
+                                                        B integer NOT NULL,
+                                                        C integer NOT NULL,
+                                                        D integer NOT NULL,
+                                                        E integer NOT NULL,
+                                                        aggregate_column NOT NULL
+                                                    ); """
+    create_table(conn, sql_create_temp_table)
+    # check of the aggregation sum for each group meets the filter level
+    # if it does stop, otherwise cube with only those values
+    result = count_partition(conn, parent_table, buc_root.data, count_result)
+    for row in result:
+        if row[0] < filter_level:  # only add values to table that meet criteria
+            print("Number of groups is too sparse for node: " + str(buc_root.data) + ", group: " + str(row))
+        else:
+            insert_into_table(conn, temp_table, parent_table, buc_root.data, row)
+    for child_node in buc_root.children:
+        count_buc_cubing(conn, temp_table, filter_level, child_node, cur_level + 1, count_result)
+    drop_table(conn, temp_table)
+
+
+def avg_partition(conn, table_name, group_by_tuple):
+    """ partitions a table by a collection of dimensions by COUNT aggregate
+        :param conn: Connection object
+        :param table_name: name of table with partitions
+        :param group_by_tuple: tuple that defines the dimensions to partition by
+        :return: array of groups and values
+    """
+    group_list = []
+    string_tuple = ""
+    for dem in group_by_tuple:
+        string_tuple += dem + ", "
+    formatted_tuple = string_tuple[0: -2]
+    c = conn.cursor()
+    try:
+        if formatted_tuple:
+            query_check = f"""select AVG(aggregate_column), {formatted_tuple} from {table_name} 
+            group by {formatted_tuple}"""
+        else:
+            query_check = f"""select AVG(aggregate_column), A from {table_name}"""
+        c.execute(query_check)
+        print("AVERAGE   |   DIMENSIONS  |  VALUES")
+        for row in c:
+            values = ""
+            for i in range(len(row)):
+                if i > 0:
+                    values += str(row[i]) + ", "
+            values = values[0: -2]
+            #print("%-7d" % row[0], "|", "%-13s" % formatted_tuple, "|", "%-7s" % values)
+            group_list.append(row)
+        print("---------------------------------------")
+        return group_list
+    except Error as e:
+        print(e)
+    finally:
+        if c:
+            c.close()
+
+
+def avg_buc_cubing(conn, parent_table, buc_root, cur_level):
+    """ cubes table_name using a BUC Iceberg approach
+            :param conn: Connection object
+            :param parent_table: name of table with partitions
+            :param cur_level: current lattice level
             :param buc_root: root of processing tree
             :return:
     """
@@ -172,19 +247,92 @@ def buc_cubing(conn, parent_table, filter_level, buc_root, cur_level):
                                                         B integer NOT NULL,
                                                         C integer NOT NULL,
                                                         D integer NOT NULL,
-                                                        E integer NOT NULL
+                                                        E integer NOT NULL,
+                                                        aggregate_column NOT NULL
                                                     ); """
     create_table(conn, sql_create_temp_table)
     # check of the aggregation sum for each group meets the filter level
     # if it does stop, otherwise cube with only those values
-    result = partition(conn, parent_table, buc_root.data)
+    result = avg_partition(conn, parent_table, buc_root.data)
     for row in result:
-        if row[0] < filter_level:  # only add values to table that meet criteria
-            print("Number of groups is too sparse for node: " + str(buc_root.data) + ", group: " + str(row))
-        else:
-            insert_into_table(conn, temp_table, parent_table, buc_root.data, row)
+        insert_into_table(conn, temp_table, parent_table, buc_root.data, row)
     for child_node in buc_root.children:
-        buc_cubing(conn, temp_table, filter_level, child_node, cur_level + 1)
+        avg_buc_cubing(conn, temp_table, child_node, cur_level + 1)
+    drop_table(conn, temp_table)
+
+
+def statistical_avg_partition(conn, table_name, group_by_tuple, count_result_value):
+    """ partitions a table by a collection of dimensions by COUNT aggregate
+        :param conn: Connection object
+        :param table_name: name of table with partitions
+        :param group_by_tuple: tuple that defines the dimensions to partition by
+        :param count_result_value: population sizes for each combination
+        :return: array of groups and values
+    """
+    group_list = []
+    string_tuple = ""
+    for dem in group_by_tuple:
+        string_tuple += dem + ", "
+    formatted_tuple = string_tuple[0: -2]
+    c = conn.cursor()
+    try:
+        population_size = count_result_value
+        sample_size = int(inf_pop_sample_size/(1+inf_pop_sample_size/population_size)) + 1
+        if formatted_tuple:
+            query_check = f"""select AVG(aggregate_column), {formatted_tuple} from 
+            (select aggregate_column, {formatted_tuple} from {table_name} limit {sample_size}) 
+            group by {formatted_tuple}"""
+        else:
+            query_check = f"""select AVG(aggregate_column), A from 
+            (select aggregate_column, A from {table_name} limit {sample_size})"""
+        c.execute(query_check)
+        print("AVERAGE   |   DIMENSIONS  |  VALUES")
+        for row in c:
+            values = ""
+            for i in range(len(row)):
+                if i > 0:
+                    values += str(row[i]) + ", "
+            values = values[0: -2]
+            #print("%-7d" % row[0], "|", "%-13s" % formatted_tuple, "|", "%-7s" % values)
+            group_list.append(row)
+        print("---------------------------------------")
+        return group_list
+    except Error as e:
+        print(e)
+    finally:
+        if c:
+            c.close()
+
+
+def statistical_avg_buc_cubing(conn, parent_table, buc_root, cur_level, count_result):
+    """ cubes table_name using a BUC Iceberg approach
+            :param conn: Connection object
+            :param parent_table: name of table with partitions
+            :param buc_root: root of processing tree
+            :param cur_level: current lattice level
+            :param count_result: running total of counts at each node
+            :return:
+    """
+    # for each permutation at a given lattice level
+    temp_table = "filtered_data_node_" + str(cur_level)
+    sql_create_temp_table = f""" CREATE TABLE IF NOT EXISTS {temp_table} (
+                                                        id integer PRIMARY KEY,
+                                                        A integer NOT NULL,
+                                                        B integer NOT NULL,
+                                                        C integer NOT NULL,
+                                                        D integer NOT NULL,
+                                                        E integer NOT NULL,
+                                                        aggregate_column NOT NULL
+                                                    ); """
+    create_table(conn, sql_create_temp_table)
+    # check of the aggregation sum for each group meets the filter level
+    # if it does stop, otherwise cube with only those values
+    if count_result.get(buc_root.data) > 0:  # this checks if the count filter eliminated all groups
+        result = statistical_avg_partition(conn, parent_table, buc_root.data, count_result.get(buc_root.data))
+        for row in result:
+            insert_into_table(conn, temp_table, parent_table, buc_root.data, row)
+        for child_node in buc_root.children:
+            statistical_avg_buc_cubing(conn, temp_table, child_node, cur_level + 1, count_result)
     drop_table(conn, temp_table)
 
 
@@ -199,15 +347,20 @@ def buc_processing_tree(dems, root):
 
 def tracing_start():
     tracemalloc.stop()
-    print("nTracing Status : ", tracemalloc.is_tracing())
     tracemalloc.start()
-    print("Tracing Status : ", tracemalloc.is_tracing())
 
 
 def tracing_mem():
     first_size, first_peak = tracemalloc.get_traced_memory()
     peak = first_peak / (1024 * 1024)
     print("Peak Size in MB - ", peak)
+
+
+z_score = 1.96
+error_margin = 0.05
+population_proportion = 0.5
+inf_pop_sample_size = int(z_score*z_score*population_proportion*(1-population_proportion)/
+                          (error_margin*error_margin)) + 1
 
 
 def main():
@@ -222,7 +375,8 @@ def main():
                                             B integer NOT NULL,
                                             C integer NOT NULL,
                                             D integer NOT NULL,
-                                            E integer NOT NULL
+                                            E integer NOT NULL,
+                                            aggregate_column NOT NULL
                                         ); """
 
     if conn is not None:
@@ -235,19 +389,47 @@ def main():
         # add data to table
         generate_table(conn, table_name, num_rows)
 
-        # start analytics
-        tracing_start()
-        start = time.time()
-
         # create processing tree
         buc_root = Node(())
         buc_processing_tree(dems, buc_root)
 
+        # start analytics
+        tracing_start()
+        start = time.time()
+
         # run naive BUC cubing on data
-        buc_cubing(conn, table_name, 12500, buc_root, 0)
+        count_result = {}
+        count_buc_cubing(conn, table_name, 12500, buc_root, 0, count_result)
 
         # print analytics
         end = time.time()
+        print("Results for count buc")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run statistical avg BUC cubing on data
+        avg_buc_cubing(conn, table_name, buc_root, 0)
+
+        # print analytics
+        end = time.time()
+        print("Results for avg buc")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run statistical avg BUC cubing on data
+        statistical_avg_buc_cubing(conn, table_name, buc_root, 0, count_result)
+
+        # print analytics
+        end = time.time()
+        print("Results for statistical avg buc")
         print("time elapsed {} milli seconds".format((end - start) * 1000))
         tracing_mem()
 
