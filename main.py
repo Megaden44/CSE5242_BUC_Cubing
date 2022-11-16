@@ -3,8 +3,6 @@ import sqlite3
 from sqlite3 import Error
 import tracemalloc
 import time
-from statistics import mean
-from memory_profiler import profile
 
 
 class Node(object):
@@ -278,9 +276,8 @@ def statistical_avg_partition(conn, table_name, group_by_tuple, count_result_val
     c = conn.cursor()
     try:
         population_size = count_result_value
-        sample_size = int(inf_pop_sample_size/(1+inf_pop_sample_size/population_size)) + 1
-        print(population_size)
-        print(sample_size)
+        # sample size is individual sample size times the number of dimensions
+        sample_size = (int(inf_pop_sample_size/(1+inf_pop_sample_size/population_size)) + 1) * pow(2, len(group_by_tuple))
         if formatted_tuple:
             query_check = f"""select AVG(aggregate_column), {formatted_tuple} from 
             (select aggregate_column, {formatted_tuple} from {table_name} limit {sample_size}) 
@@ -344,8 +341,8 @@ def tracing_mem():
     print("Peak Size in MB - ", peak)
 
 
-z_score = 1.645
-error_margin = 0.20
+z_score = 1.96
+error_margin = 0.05
 population_proportion = 0.5
 inf_pop_sample_size = int(z_score*z_score*population_proportion*(1-population_proportion)/
                           (error_margin*error_margin)) + 1
@@ -385,7 +382,7 @@ def main():
 
         # run naive BUC cubing on data
         count_result = {}
-        count_buc_cubing(conn, table_name, 1, buc_root, count_result)
+        count_buc_cubing(conn, table_name, 5, buc_root, count_result)
 
         # print analytics
         end = time.time()
