@@ -1,67 +1,42 @@
+import tracemalloc
+
+import avg_buc
 import data_helper
 import db_helper
-import BUC
+import count_buc
+import stat_avg_buc
 import tdC
+import time
 
 
+def tracing_start():
+    tracemalloc.stop()
+    tracemalloc.start()
 
 
+def tracing_mem():
+    first_size, first_peak = tracemalloc.get_traced_memory()
+    peak = first_peak / (1024 * 1024)
+    print("Peak Size in MB - ", peak)
 
-# def main():
-#     db_name = r"data-cubing.db"
-#     table_name = "cubing_data"
-#     conn = db_helper.create_connection(db_name)
-#     dim = list(map(chr, range(65, 70)))
-#     num_rows = 100000
-#     sql_create_projects_table = f""" CREATE TABLE IF NOT EXISTS {table_name} (
-#                                             id integer PRIMARY KEY,
-#                                             A integer NOT NULL,
-#                                             B integer NOT NULL,
-#                                             C integer NOT NULL,
-#                                             D integer NOT NULL,
-#                                             E integer NOT NULL
-#                                         ); """
-#
-#     if conn is not None:
-#         # drop tables
-#         db_helper.drop_table(conn, table_name)
-#
-#         # create projects table
-#         db_helper.create_table(conn, sql_create_projects_table)
-#
-#         # add data to table
-#         db_helper.generate_table(conn, table_name, num_rows)
-#
-#         # create processing tree
-#
-#         # buc_root = data_helper.ReverseNode(dim)
-#         # data_helper.reverse_processing_tree(dim, buc_root)
-#         #
-#         # # run naive BUC cubing on data
-#         # tdC.tdc_cubing(conn, table_name, 12500, buc_root, 0, -1)
-#
-#         buc_root = data_helper.Node(())
-#         data_helper.processing_tree(dim, buc_root)
-#
-#         # run naive BUC cubing on data
-#         BUC.buc_cubing(conn, table_name, 12500, buc_root, 0)
-#
-#         # close connection
-#         conn.close()
 
 def main():
     db_name = r"data-cubing.db"
     table_name = "cubing_data"
     conn = db_helper.create_connection(db_name)
     dim = list(map(chr, range(65, 70)))
-    num_rows = 100000
+    num_rows = 10000
+    filter_level = 1250
+    verbose = False
+    count_result = {}
     sql_create_projects_table = f""" CREATE TABLE IF NOT EXISTS {table_name} (
                                             id integer PRIMARY KEY,
                                             A integer NOT NULL,
                                             B integer NOT NULL,
                                             C integer NOT NULL,
                                             D integer NOT NULL,
-                                            E integer NOT NULL
+                                            E integer NOT NULL,
+                                            aggregate_column NOT NULL
                                         ); """
 
     if conn is not None:
@@ -74,22 +49,69 @@ def main():
         # add data to table
         db_helper.generate_table(conn, table_name, num_rows)
 
-        # create processing tree
+        # create TDC processing tree
+        tdc_root = data_helper.Node(dim)
+        data_helper.reverse_processing_tree(dim, tdc_root)
 
-        buc_root = data_helper.ReverseNode(dim)
-        data_helper.reverse_processing_tree(dim, buc_root)
+        # start analytics
+        tracing_start()
+        start = time.time()
 
-        # run naive BUC cubing on data
-        tdC.tdc_cubing(conn, table_name, 12500, buc_root, 0, 0)
+        # run naive TDC cubing on data
+        tdC.tdc_cubing(conn, table_name, filter_level, tdc_root, 0, 0, verbose)
 
-        # buc_root = data_helper.Node(())
-        # data_helper.processing_tree(dim, buc_root)
-        #
-        # # run naive BUC cubing on data
-        # BUC.buc_cubing(conn, table_name, 12500, buc_root, 0)
+        # print analytics
+        end = time.time()
+        print("Results for count TDC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # create BUC processing tree
+        buc_root = data_helper.Node(())
+        data_helper.processing_tree(dim, buc_root)
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run naive count BUC cubing on data
+        count_buc.count_buc(conn, table_name, filter_level, buc_root, 0, count_result, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for count BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run avg BUC cubing on data no filter
+        avg_buc.avg_buc(conn, table_name, buc_root, 0, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for avg BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run statistical avg BUC cubing on data
+        stat_avg_buc.stat_avg_buc(conn, table_name, buc_root, 0, count_result, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for stat avg BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
 
         # close connection
         conn.close()
+
 
 if __name__ == '__main__':
     main()
