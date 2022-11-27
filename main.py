@@ -27,6 +27,7 @@ def main():
     num_rows = int(input("Enter number of rows to generate (integer): "))
     filter_level = int(input("Enter filter level to use (integer): "))
     verbose_input = input("Verbose output (T/F): ")
+    skew = int(input("Enter percent of skew in the data (Ratio of 1s to 0s) (integer): "))
     verbose = (verbose_input == "T") or (verbose_input == "t")
     count_result = {}
     sql_create_projects_table = f""" CREATE TABLE IF NOT EXISTS {table_name} (
@@ -47,7 +48,7 @@ def main():
         db_helper.create_table(conn, sql_create_projects_table)
 
         # add data to table
-        db_helper.generate_table(conn, table_name, num_rows)
+        db_helper.generate_table(conn, table_name, num_rows, skew)
 
         # create BUC processing tree
         buc_root = data_helper.Node(())
