@@ -54,6 +54,7 @@ select avg(aggregate_column) from cubing_data group by B, C, D
 select avg(aggregate_column) from cubing_data group by B, C, E
 
 select avg(aggregate_column) from cubing_data group by B, C, D, E
+
 select avg(aggregate_column) from cubing_data group by C
 
 select avg(aggregate_column) from cubing_data group by C, D
