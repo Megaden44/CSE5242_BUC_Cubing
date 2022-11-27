@@ -11,18 +11,34 @@ class Node(object):
         self.children.append(obj)
 
 
-def generate_data(rows):
+def generate_data(rows, skew):
     """ generate uniform data
         :param rows: specifies number of rows to generate
+        :param skew: how much skew in the database
         :return: array of cardinality rows with generated data
     """
     arr = []
     for i in range(rows):
-        a = random.randint(0, 1)
-        b = random.randint(0, 1)
-        c = random.randint(0, 1)
-        d = random.randint(0, 1)
-        e = random.randint(0, 1)
+        if random.randint(0, 100) > skew:
+            a = 0
+        else:
+            a = 1
+        if random.randint(0, 100) > skew:
+            b = 0
+        else:
+            b = 1
+        if random.randint(0, 100) > skew:
+            c = 0
+        else:
+            c = 1
+        if random.randint(0, 100) > skew:
+            d = 0
+        else:
+            d = 1
+        if random.randint(0, 100) > skew:
+            e = 0
+        else:
+            e = 1
         aggregate_column = random.randint(0, 100)
         arr.append((a, b, c, d, e, aggregate_column))
     return arr

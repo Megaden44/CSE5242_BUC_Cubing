@@ -93,16 +93,17 @@ def delete_from_table(conn, parent_table, filtered_node, filtered_values):
         print(e)
 
 
-def generate_table(conn, table, num_rows):
+def generate_table(conn, table, num_rows, skew):
     """ insert into table specified number of rows
     :param num_rows: number of rows to insert
     :param conn: Connection object
     :param table: a CREATE TABLE statement
+    :param skew: ratio of 1s to 0s
     :return:
     """
     c = conn.cursor()
     try:
-        data = data_helper.generate_data(num_rows)
+        data = data_helper.generate_data(num_rows, skew)
         query_insert = f"""INSERT INTO {table} (A,B,C,D,E, aggregate_column) VALUES (?,?,?,?,?,?)"""
         query_select = f"""SELECT * FROM {table}"""
         c.executemany(query_insert, data)
