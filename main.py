@@ -5,7 +5,6 @@ import data_helper
 import db_helper
 import count_buc
 import stat_avg_buc
-import tdC
 import time
 
 
@@ -17,7 +16,7 @@ def tracing_start():
 def tracing_mem():
     first_size, first_peak = tracemalloc.get_traced_memory()
     peak = first_peak / (1024 * 1024)
-    print("Peak Size in MB - ", peak)
+    print("Peak Size in MB - " + str(peak) + "\n")
 
 
 def main():
@@ -25,9 +24,10 @@ def main():
     table_name = "cubing_data"
     conn = db_helper.create_connection(db_name)
     dim = list(map(chr, range(65, 70)))
-    num_rows = 10000
-    filter_level = 1250
-    verbose = False
+    num_rows = int(input("Enter number of rows to generate (integer): "))
+    filter_level = int(input("Enter filter level to use (integer): "))
+    verbose_input = input("Verbose output (T/F): ")
+    verbose = (verbose_input == "T") or (verbose_input == "t")
     count_result = {}
     sql_create_projects_table = f""" CREATE TABLE IF NOT EXISTS {table_name} (
                                             id integer PRIMARY KEY,
@@ -48,23 +48,6 @@ def main():
 
         # add data to table
         db_helper.generate_table(conn, table_name, num_rows)
-
-        # create TDC processing tree
-        tdc_root = data_helper.Node(dim)
-        data_helper.reverse_processing_tree(dim, tdc_root)
-
-        # start analytics
-        tracing_start()
-        start = time.time()
-
-        # run naive TDC cubing on data
-        tdC.tdc_cubing(conn, table_name, filter_level, tdc_root, 0, 0, verbose)
-
-        # print analytics
-        end = time.time()
-        print("Results for count TDC")
-        print("time elapsed {} milli seconds".format((end - start) * 1000))
-        tracing_mem()
 
         # create BUC processing tree
         buc_root = data_helper.Node(())
@@ -106,6 +89,45 @@ def main():
         # print analytics
         end = time.time()
         print("Results for stat avg BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run refined count BUC cubing on data
+        count_buc.ref_count_buc(conn, table_name, filter_level, buc_root, count_result, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for refinec count BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run refined avg BUC cubing on data no filter
+        avg_buc.ref_avg_buc(conn, table_name, buc_root, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for refined avg BUC")
+        print("time elapsed {} milli seconds".format((end - start) * 1000))
+        tracing_mem()
+
+        # start analytics
+        tracing_start()
+        start = time.time()
+
+        # run refined statistical avg BUC cubing on data
+        stat_avg_buc.ref_stat_avg_buc(conn, table_name, buc_root, verbose)
+
+        # print analytics
+        end = time.time()
+        print("Results for refined stat avg BUC")
         print("time elapsed {} milli seconds".format((end - start) * 1000))
         tracing_mem()
 

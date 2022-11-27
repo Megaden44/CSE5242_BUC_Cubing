@@ -34,3 +34,17 @@ def stat_avg_buc(conn, parent_table, buc_root, cur_level, count_result, verbose)
         for child_node in buc_root.children:
             stat_avg_buc(conn, temp_table, child_node, cur_level + 1, count_result, verbose)
     db_helper.drop_table(conn, temp_table)
+
+
+def ref_stat_avg_buc(conn, parent_table, buc_root, verbose):
+    """ cubes table_name using a BUC Iceberg approach
+            :param conn: Connection object
+            :param parent_table: name of table with partitions
+            :param buc_root: root of processing tree
+            :param verbose: print out status
+            :return:
+    """
+    # for each permutation at a given lattice level partition
+    data_helper.avg_partition(conn, parent_table, buc_root.data, verbose)
+    for child_node in buc_root.children:
+        ref_stat_avg_buc(conn, parent_table, child_node, verbose)
